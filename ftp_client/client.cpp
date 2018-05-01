@@ -11,7 +11,8 @@
 #define BUFLEN 256
 
 /* Login to socket with username and password
- * return reply_code (code send from server)
+ * return 0 if fail,
+ * otherwise return reply_code (code from server)
  */
 int ftp_login(SOCKET connect_SOCKET);
 
@@ -79,6 +80,12 @@ int main(int argc, char *argv[])
 
 	// Login
 	status = ftp_login(connect_SOCKET);
+	if (status == 0) {
+		closesocket(connect_SOCKET);
+		WSACleanup();
+		printf("Login error\n");
+		return 0;
+	}
 
 	// Cleanup
 	closesocket(connect_SOCKET);
@@ -103,7 +110,7 @@ int ftp_login(SOCKET connect_SOCKET)
 			break;
 		}
 		// error happen
-		return reply_code;
+		return 0;
 	}
 	memset(buf, 0, BUFLEN);
 
@@ -134,7 +141,7 @@ int ftp_login(SOCKET connect_SOCKET)
 			break;
 		}
 		// error happen
-		return reply_code;
+		return 0;
 	}
 	memset(buf, 0, BUFLEN);
 
@@ -170,7 +177,7 @@ int ftp_login(SOCKET connect_SOCKET)
 			break;
 		}
 		// error happen
-		return reply_code;
+		return 0;
 	}
 	memset(buf, 0, BUFLEN);
 
@@ -229,26 +236,26 @@ void print_reply_code(int reply_code)
 	else if (reply_code == 220)
 		printf("%d Service ready for new user.\n", reply_code);
 	else if (reply_code == 221)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 225)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 226)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 227)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 230)
 		printf("%d User logged in, proceed.\n", reply_code);
 	else if (reply_code == 250)
 		printf("%d Requested file action okay, completed.\n",
 		       reply_code);
 	else if (reply_code == 257)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 331)
 		printf("%d User name okay, need password.\n", reply_code);
 	else if (reply_code == 332)
 		printf("%d Need account for login.\n", reply_code);
 	else if (reply_code == 350)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 421)
 		printf("%d Service not available, closing control connection.\n"
 		       "    This may be a reply to any command if the service "
@@ -256,15 +263,15 @@ void print_reply_code(int reply_code)
 		       "    must shut down.\n",
 		       reply_code);
 	else if (reply_code == 425)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 426)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 450)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 451)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 451)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 500)
 		printf("%d Syntax error, command unrecognized.\n"
 		       "    This may include errors such as command line too "
@@ -274,21 +281,21 @@ void print_reply_code(int reply_code)
 		printf("%d Syntax error in parameters or arguments.\n",
 		       reply_code);
 	else if (reply_code == 502)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 503)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 504)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 530)
 		printf("%d Not logged in.\n", reply_code);
 	else if (reply_code == 532)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 550)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 551)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 552)
-		;
+		printf("%d\n", reply_code);
 	else if (reply_code == 553)
-		;
+		printf("%d\n", reply_code);
 }
