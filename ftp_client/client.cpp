@@ -1,5 +1,5 @@
 // TODO hoan thanh print_reply_code (con mot so code chua xong)
-// TODO nhap password ma khong hien len terminal
+// TODO passive mode
 
 #include "reply.h"
 #include <stdio.h>
@@ -17,11 +17,13 @@
  */
 int ftp_login(SOCKET connect_SOCKET);
 
-/* User request exit connection from client
+/* Handle user request
  * return 0 if fail,
  * otherwise return reply_code
  */
 int handle_ftp_exit(SOCKET connect_SOCKET);
+int handle_ftp_ls(SOCKET connect_SOCKET, char *input);
+int handle_ftp_dir(SOCKET connect_SOCKET, char *input);
 
 int main(int argc, char *argv[])
 {
@@ -96,12 +98,15 @@ int main(int argc, char *argv[])
 		fgets(input, BUFLEN, stdin);
 		input[strcspn(input, "\n")] = 0; // remove trailing '\n'
 		if (strcmp(input, "?") == 0 || strcmp(input, "help") == 0)
-			printf("quit\texit\t\n");
+			printf("quit\texit\t\n"
+			       "ls [path]\tdir [path]\n");
 		else if (strcmp(input, "quit") == 0 ||
 			 strcmp(input, "exit") == 0) {
 			handle_ftp_exit(connect_SOCKET);
 			break;
-		} else
+		} else if (input[0] == 'l' && input[0] == 's')
+			handle_ftp_ls(connect_SOCKET, input);
+		else
 			printf("Command not found. Please type ? or help\n");
 	}
 
@@ -130,10 +135,10 @@ int ftp_login(SOCKET connect_SOCKET)
 		// error happen
 		return 0;
 	}
-	memset(buf, 0, BUFLEN);
 
 	// Get username
 	// USER <SP> <username> <CRLF>
+	memset(buf, 0, BUFLEN);
 	printf("Username: ");
 	char username[BUFLEN - 10];
 	fgets(username, BUFLEN - 10, stdin);
@@ -145,9 +150,9 @@ int ftp_login(SOCKET connect_SOCKET)
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
 	}
-	memset(buf, 0, BUFLEN);
 
 	// Check server recieving username
+	memset(buf, 0, BUFLEN);
 	while ((len_temp = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
 		char *p_end = NULL;
 		reply_code = strtol(buf, &p_end, 10);
@@ -161,7 +166,6 @@ int ftp_login(SOCKET connect_SOCKET)
 		// error happen
 		return 0;
 	}
-	memset(buf, 0, BUFLEN);
 
 	// If logged in, exit
 	if (reply_code == 230) {
@@ -171,6 +175,7 @@ int ftp_login(SOCKET connect_SOCKET)
 	// username looks good, need password
 	// Get password
 	// PASS <SP> <password> <CRLF>
+	memset(buf, 0, BUFLEN);
 	printf("Password: ");
 	char password[BUFLEN - 10];
 	fgets(password, BUFLEN - 10, stdin);
@@ -182,9 +187,9 @@ int ftp_login(SOCKET connect_SOCKET)
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
 	}
-	memset(buf, 0, BUFLEN);
 
 	// Check server recieving password
+	memset(buf, 0, BUFLEN);
 	while ((len_temp = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
 		char *p_end = NULL;
 		reply_code = strtol(buf, &p_end, 10);
@@ -197,7 +202,6 @@ int ftp_login(SOCKET connect_SOCKET)
 		// error happen
 		return 0;
 	}
-	memset(buf, 0, BUFLEN);
 
 	return reply_code;
 }
@@ -209,6 +213,7 @@ int handle_ftp_exit(SOCKET connect_SOCKET)
 	int reply_code;
 	int status;
 
+	// QUIT <CRLF>
 	char quit_msg[] = "QUIT\r\n";
 	strncpy_s(buf, quit_msg, strlen(quit_msg));
 	status = send(connect_SOCKET, buf, strlen(buf), 0);
@@ -231,7 +236,55 @@ int handle_ftp_exit(SOCKET connect_SOCKET)
 		// error happen
 		return 0;
 	}
+
+	return reply_code;
+}
+
+int handle_ftp_ls(SOCKET connect_SOCKET, char *input)
+{
+	char buf[BUFLEN];
+	int len_temp;
+	int reply_code;
+	int status;
+
+	// input co dan "ls [path]"
+	// NLST [<SP> <pathname>] <CRLF>
+	char *p_in = input;
+	p_in += 2; // skip "ls"
+	while (isspace(*p_in))
+		++p_in;
+	// only "ls", no path given
+	if (*p_in == '\0') {
+		char ls_msg[] = "NLST\r\n";
+		strncpy_s(buf, ls_msg, strlen(ls_msg));
+	} else {
+		char ls_msg_begin[] = "NLST ";
+		strncpy_s(buf, ls_msg_begin, strlen(ls_msg_begin));
+		int i = strlen(ls_msg_begin);
+		while (*p_in != '\0') {
+			buf[i] = *p_in;
+			++i;
+			++p_in;
+		}
+		buf[i] = '\0';
+	}
+	status = send(connect_SOCKET, buf, strlen(buf), 0);
+	if (status == SOCKET_ERROR) {
+		printf("send() error %d\n", WSAGetLastError());
+	}
 	memset(buf, 0, BUFLEN);
+
+	while ((len_temp = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
+		char *p_end = NULL;
+		reply_code = strtol(buf, &p_end, 10);
+		print_reply_code(reply_code);
+
+		if (reply_code == 221) {
+			break;
+		}
+		// error happen
+		return 0;
+	}
 
 	return reply_code;
 }
