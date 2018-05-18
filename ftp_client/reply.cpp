@@ -59,7 +59,11 @@ void print_reply_code(int reply_code)
 	else if (reply_code == 225)
 		printf("%d\n", reply_code);
 	else if (reply_code == 226)
-		printf("%d\n", reply_code);
+		printf(
+		    "%d Closing data connection.\n"
+		    "    Requested file action successful (for example, file\n"
+		    "    transfer or file abort).\n",
+		    reply_code);
 	else if (reply_code == 227)
 		printf("%d\n", reply_code);
 	else if (reply_code == 230)
