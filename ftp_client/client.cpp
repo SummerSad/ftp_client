@@ -1,4 +1,8 @@
+// TODO
+// put, get, mput, mget
+// mdelete
 #include <conio.h>
+#include <direct.h>
 #include <iostream>
 #include <random>
 #include <string>
@@ -132,6 +136,7 @@ int main(int argc, char *argv[])
 		fgets(input, BUFLEN, stdin);
 		input[strcspn(input, "\n")] = 0; // remove trailing '\n'
 
+		// client only
 		if (strcmp(input, "active") == 0) {
 			if (ftp_mode == active)
 				printf("Keep active mode\n");
@@ -148,12 +153,28 @@ int main(int argc, char *argv[])
 				ftp_mode = passive;
 			}
 			continue;
+		}
+		// change client directory
+		else if (input[0] == 'l' && input[1] == 'c' &&
+			 input[2] == 'd') {
+			_chdir(input + 4);
+			printf("Change client working directory to %s\n",
+			       input + 4);
+			continue;
+		}
+		// show current client directory
+		else if (strcmp(input, "lpwd") == 0) {
+			char *buffer = _getcwd(NULL, 0);
+			printf("Current client directory %s\n", buffer);
+			free(buffer);
+			continue;
 		} else if (strcmp(input, "help") == 0 ||
 			   strcmp(input, "?") == 0) {
 			printf("This is help\n");
 			continue;
 		}
-		// normal cmd
+
+		// cmd to server
 		status = decide_cmd(connect_SOCKET, input, ftp_mode);
 		if (status == FTP_EXIT)
 			break;
@@ -243,14 +264,48 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	} else if (strcmp(input, "pwd") == 0) {
 		go_where = single;
 		cmd.str = string("PWD\r\n");
-	} else if (input[0] == 'c' && input[1] == 'd') {
+	}
+	// cd
+	else if (input[0] == 'c' && input[1] == 'd') {
 		go_where = single;
 		string temp = "CWD";
 		temp += string(input + 2);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	} else if (input[0] == 'l' && input[1] == 's') {
+	}
+	// delete
+	else if (input[0] == 'd' && input[1] == 'e' && input[2] == 'l' &&
+		 input[3] == 'e' && input[4] == 't' && input[5] == 'e') {
+		go_where = single;
+		string temp = "DELE";
+		temp += string(input + 6);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {250};
+	}
+	// mkdir
+	else if (input[0] == 'm' && input[1] == 'k' && input[2] == 'd' &&
+		 input[3] == 'i' && input[4] == 'r') {
+		go_where = single;
+		string temp = "MKD";
+		temp += string(input + 5);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {257};
+	}
+	// rmdir
+	else if (input[0] == 'r' && input[1] == 'm' && input[2] == 'd' &&
+		 input[3] == 'i' && input[4] == 'r') {
+		go_where = single;
+		string temp = "RMD";
+		temp += string(input + 5);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {250};
+	}
+	// ls
+	else if (input[0] == 'l' && input[1] == 's') {
 		go_where = multi;
 		string temp = "NLST";
 		if (input[2] != '\0') {
@@ -353,8 +408,8 @@ int handle_cmd_multi(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
 	}
 
 	// Check server successfully transfer
-	vector<int> arr_reply_code_suc = {226};
-	if (recv_reply(connect_SOCKET, arr_reply_code_suc) == FTP_FAIL) {
+	vector<int> arr_expect = {226};
+	if (recv_reply(connect_SOCKET, arr_expect) == FTP_FAIL) {
 		closesocket(data_SOCKET);
 		return FTP_FAIL;
 	}
@@ -452,8 +507,8 @@ SOCKET mode_active(SOCKET connect_SOCKET)
 	}
 
 	// Get reply from server
-	vector<int> arr_reply_code = {200};
-	if (recv_reply(connect_SOCKET, arr_reply_code) == FTP_FAIL)
+	vector<int> arr_expect = {200};
+	if (recv_reply(connect_SOCKET, arr_expect) == FTP_FAIL)
 		return INVALID_SOCKET;
 
 	return listen_SOCKET;
