@@ -79,10 +79,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="client.cpp" />
-    <ClCompile Include="ulti.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="ulti.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

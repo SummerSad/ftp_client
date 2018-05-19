@@ -1,7 +1,5 @@
-// TODO hoan thanh print_reply_code (con mot so code chua xong)
-// TODO passive mode
-
-#include "ulti.h"
+#include <conio.h>
+#include <ctype.h>
 #include <iostream>
 #include <random>
 #include <string>
@@ -9,37 +7,38 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
-#define FTP_PORT "21"
 #define BUFLEN 1024
+#define FTP_PORT "21"
+#define FTP_FAIL -1
+#define FTP_WIN 0
 enum MODE { active, passive };
 using namespace std;
 
-/* Login to socket with username and password
- * return 0 if fail,
- * otherwise return reply_code (code from server)
- */
-int ftp_login(SOCKET connect_SOCKET);
+// Login to socket with username and password
+int handle_login(SOCKET connect_SOCKET);
 
-/* Handle user request
- * return 0 if fail,
- * otherwise return reply_code
- */
-int handle_ftp_exit(SOCKET connect_SOCKET);
-int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode);
-// TODO int handle_ftp_dir(SOCKET connect_SOCKET, char *input, MODE
-// default_mode);
+// Handle user request
+int handle_exit(SOCKET connect_SOCKET);
+int handle_ls(SOCKET connect_SOCKET, char *input, MODE default_mode);
 
-/* active and passive mode
+/* active mode
+ * return listen socket
+ * wait to accept transfer data
+ */
+SOCKET mode_active(SOCKET connect_SOCKET);
+
+/* passive mode
  * return socket to transfer data
  */
-SOCKET mode_ftp_active(SOCKET connect_SOCKET);
-SOCKET mode_ftp_passive(SOCKET connect_SOCKET);
+SOCKET mode_passive(SOCKET connect_SOCKET);
 
-/* receive expect reply code
- * return 0 if fail,
- * otherwise return latest reply code
+/* receive reply from server
+ * return reply code
  */
 int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect);
+
+// check if k exist in arr
+int exists_in_arr(vector<int> arr, int k);
 
 int main(int argc, char *argv[])
 {
@@ -99,8 +98,8 @@ int main(int argc, char *argv[])
 	freeaddrinfo(result);
 
 	// Login
-	status = ftp_login(connect_SOCKET);
-	if (status == 0) {
+	status = handle_login(connect_SOCKET);
+	if (status == FTP_FAIL) {
 		closesocket(connect_SOCKET);
 		WSACleanup();
 		printf("Login error\n");
@@ -120,10 +119,10 @@ int main(int argc, char *argv[])
 		else if (strcmp(input, "quit") == 0 ||
 			 strcmp(input, "exit") == 0 ||
 			 strcmp(input, "q") == 0) {
-			handle_ftp_exit(connect_SOCKET);
+			handle_exit(connect_SOCKET);
 			break;
 		} else if (input[0] == 'l' && input[1] == 's')
-			handle_ftp_ls(connect_SOCKET, input, ftp_mode);
+			handle_ls(connect_SOCKET, input, ftp_mode);
 		else if (strcmp(input, "active") == 0) {
 			if (ftp_mode == passive) {
 				ftp_mode = active;
@@ -147,7 +146,7 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-int ftp_login(SOCKET connect_SOCKET)
+int handle_login(SOCKET connect_SOCKET)
 {
 	char buf[BUFLEN]; // buffer receice from or send to ftp serve
 	int reply_code;   // reply code from ftp server
@@ -156,6 +155,8 @@ int ftp_login(SOCKET connect_SOCKET)
 	// Check connection
 	vector<int> arr_reply_code_connect = {220};
 	reply_code = recv_reply(connect_SOCKET, arr_reply_code_connect);
+	if (!exists_in_arr(arr_reply_code_connect, reply_code))
+		return FTP_FAIL;
 
 	// Get username
 	// USER <SP> <username> <CRLF>
@@ -170,15 +171,18 @@ int ftp_login(SOCKET connect_SOCKET)
 	status = send(connect_SOCKET, buf, strlen(buf), 0);
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
+		return FTP_FAIL;
 	}
 
 	// Check server recieving username
 	vector<int> arr_reply_code_user = {230, 331};
 	reply_code = recv_reply(connect_SOCKET, arr_reply_code_user);
+	if (!exists_in_arr(arr_reply_code_user, reply_code))
+		return FTP_FAIL;
 
 	// If logged in, exit
 	if (reply_code == 230) {
-		return reply_code;
+		return FTP_WIN;
 	}
 
 	// username looks good, need password
@@ -187,7 +191,16 @@ int ftp_login(SOCKET connect_SOCKET)
 	memset(buf, 0, BUFLEN);
 	printf("Password: ");
 	char password[BUFLEN - 10];
-	fgets(password, BUFLEN - 10, stdin);
+	int temp_i = 0, temp_ch;
+	while ((temp_ch = _getch()) != 13) {
+		printf("*");
+		password[temp_i++] = temp_ch;
+	}
+	password[temp_i] = '\0';
+	fflush(stdin);
+	printf("\n");
+
+	// fgets(password, BUFLEN - 10, stdin);
 	password[strcspn(password, "\n")] = 0; // remove trailing '\n'
 	sprintf_s(buf, "PASS %s\r\n", password);
 
@@ -195,16 +208,19 @@ int ftp_login(SOCKET connect_SOCKET)
 	status = send(connect_SOCKET, buf, strlen(buf), 0);
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
+		return FTP_FAIL;
 	}
 
 	// Check server recieving password
 	vector<int> arr_reply_code_pass = {230};
 	reply_code = recv_reply(connect_SOCKET, arr_reply_code_pass);
+	if (!exists_in_arr(arr_reply_code_pass, reply_code))
+		return FTP_FAIL;
 
-	return reply_code;
+	return FTP_WIN;
 }
 
-int handle_ftp_exit(SOCKET connect_SOCKET)
+int handle_exit(SOCKET connect_SOCKET)
 {
 	char buf[BUFLEN];
 	int reply_code;
@@ -225,7 +241,7 @@ int handle_ftp_exit(SOCKET connect_SOCKET)
 	return reply_code;
 }
 
-int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
+int handle_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 {
 	char buf[BUFLEN];
 	int len_temp;
@@ -235,13 +251,13 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 	SOCKET data_SOCKET = INVALID_SOCKET;
 	SOCKET listen_SOCKET = INVALID_SOCKET;
 	if (default_mode == active) {
-		listen_SOCKET = mode_ftp_active(connect_SOCKET);
+		listen_SOCKET = mode_active(connect_SOCKET);
 	} else {
-		data_SOCKET = mode_ftp_passive(connect_SOCKET);
+		data_SOCKET = mode_passive(connect_SOCKET);
 	}
 	// can not create data stream when passive
-	if (data_SOCKET == INVALID_SOCKET && default_mode == passive)
-		return 0;
+	if (data_SOCKET == INVALID_SOCKET && listen_SOCKET == INVALID_SOCKET)
+		return FTP_FAIL;
 
 	// input co dang "ls [path]"
 	// NLST [<SP> <pathname>] <CRLF>
@@ -262,10 +278,16 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 	// Check server receiving ls msg
 	vector<int> arr_reply_code_ls = {221, 125, 150};
 	reply_code = recv_reply(connect_SOCKET, arr_reply_code_ls);
+	if (!exists_in_arr(arr_reply_code_ls, reply_code)) {
+		closesocket(listen_SOCKET);
+		closesocket(data_SOCKET);
+		return FTP_FAIL;
+	}
 
 	// accept if active
 	if (default_mode == active) {
 		data_SOCKET = accept(listen_SOCKET, NULL, NULL);
+		closesocket(listen_SOCKET);
 	}
 
 	// receving data from server
@@ -277,12 +299,16 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 	// Check server successfully transfer
 	vector<int> arr_reply_code_suc = {226, 250};
 	reply_code = recv_reply(connect_SOCKET, arr_reply_code_suc);
+	if (!exists_in_arr(arr_reply_code_suc, reply_code)) {
+		closesocket(data_SOCKET);
+		return FTP_FAIL;
+	}
 
 	closesocket(data_SOCKET);
-	return reply_code;
+	return FTP_WIN;
 }
 
-SOCKET mode_ftp_active(SOCKET connect_SOCKET)
+SOCKET mode_active(SOCKET connect_SOCKET)
 {
 	// random port (code from stackoverflow)
 	random_device rd;  // obtain a random number from hardware
@@ -372,11 +398,13 @@ SOCKET mode_ftp_active(SOCKET connect_SOCKET)
 	// Get reply from server
 	vector<int> arr_reply_code = {200};
 	int reply_code = recv_reply(connect_SOCKET, arr_reply_code);
+	if (!exists_in_arr(arr_reply_code, reply_code))
+		return INVALID_SOCKET;
 
 	return listen_SOCKET;
 }
 
-SOCKET mode_ftp_passive(SOCKET connect_SOCKET)
+SOCKET mode_passive(SOCKET connect_SOCKET)
 {
 	char buf[BUFLEN];
 	int reply_code;
@@ -468,8 +496,15 @@ int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect)
 		if (exists_in_arr(arr_expect, reply_code)) {
 			break;
 		}
-		// error happen
-		return 0;
 	}
 	return reply_code;
+}
+
+int exists_in_arr(vector<int> arr, int k)
+{
+	for (size_t i = 0; i < arr.size(); ++i) {
+		if (arr[i] == k)
+			return 1;
+	}
+	return 0;
 }
