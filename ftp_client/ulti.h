@@ -1,6 +1,9 @@
 #ifndef _ULTI_INCLUDED
 #define _ULTI_INCLUDED
 
-int exists_in_arr(int *arr, int size, int k);
+#include <vector>
+using namespace std;
+
+int exists_in_arr(vector<int> arr, int k);
 
 #endif

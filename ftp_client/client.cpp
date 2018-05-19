@@ -1,7 +1,6 @@
 // TODO hoan thanh print_reply_code (con mot so code chua xong)
 // TODO passive mode
 
-#include "reply.h"
 #include "ulti.h"
 #include <iostream>
 #include <random>
@@ -40,8 +39,7 @@ SOCKET mode_ftp_passive(SOCKET connect_SOCKET);
  * return 0 if fail,
  * otherwise return latest reply code
  */
-int recv_expect_reply_code(SOCKET connect_SOCKET, int *arr_reply_code,
-			   int arr_size);
+int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect);
 
 int main(int argc, char *argv[])
 {
@@ -94,15 +92,6 @@ int main(int argc, char *argv[])
 			closesocket(connect_SOCKET);
 			continue;
 		}
-		if (p_addrinfo->ai_family == AF_INET) {
-			char ip4_str[INET_ADDRSTRLEN];
-			struct sockaddr_in *ipv4 =
-			    +(struct sockaddr_in *)p_addrinfo->ai_addr;
-			void *addr = &(ipv4->sin_addr);
-			inet_ntop(p_addrinfo->ai_family, addr, ip4_str,
-				  INET_ADDRSTRLEN);
-			printf("IPv4 %s\n", ip4_str);
-		}
 		break;
 	}
 
@@ -120,7 +109,7 @@ int main(int argc, char *argv[])
 
 	// Read commands from user
 	char input[BUFLEN];
-	MODE default_mode = passive;
+	MODE ftp_mode = active;
 	while (1) {
 		printf("ftp> ");
 		fgets(input, BUFLEN, stdin);
@@ -134,8 +123,21 @@ int main(int argc, char *argv[])
 			handle_ftp_exit(connect_SOCKET);
 			break;
 		} else if (input[0] == 'l' && input[1] == 's')
-			handle_ftp_ls(connect_SOCKET, input, default_mode);
-		else
+			handle_ftp_ls(connect_SOCKET, input, ftp_mode);
+		else if (strcmp(input, "active") == 0) {
+			if (ftp_mode == passive) {
+				ftp_mode = active;
+				printf("Switch to active mode\n");
+			} else
+				printf("Keep current active mode\n");
+		} else if (strcmp(input, "pasv") == 0) {
+			if (ftp_mode == active) {
+				ftp_mode = passive;
+				printf("Switch to passive mode\n");
+			} else
+				printf("Keep current passive mode\n");
+
+		} else
 			printf("Command not found. Please type ? or help\n");
 	}
 
@@ -152,11 +154,8 @@ int ftp_login(SOCKET connect_SOCKET)
 	int status;       // for get Winsock error
 
 	// Check connection
-	int arr_reply_code_connect[] = {220};
-	int arr_size_connnect =
-	    sizeof(arr_reply_code_connect) / sizeof(arr_reply_code_connect[0]);
-	reply_code = recv_expect_reply_code(
-	    connect_SOCKET, arr_reply_code_connect, arr_size_connnect);
+	vector<int> arr_reply_code_connect = {220};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code_connect);
 
 	// Get username
 	// USER <SP> <username> <CRLF>
@@ -174,11 +173,8 @@ int ftp_login(SOCKET connect_SOCKET)
 	}
 
 	// Check server recieving username
-	int arr_reply_code_user[] = {230, 331};
-	int arr_size_user =
-	    sizeof(arr_reply_code_user) / sizeof(arr_reply_code_user[0]);
-	reply_code = recv_expect_reply_code(connect_SOCKET, arr_reply_code_user,
-					    arr_size_user);
+	vector<int> arr_reply_code_user = {230, 331};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code_user);
 
 	// If logged in, exit
 	if (reply_code == 230) {
@@ -202,11 +198,8 @@ int ftp_login(SOCKET connect_SOCKET)
 	}
 
 	// Check server recieving password
-	int arr_reply_code_pass[] = {230};
-	int arr_size_pass =
-	    sizeof(arr_reply_code_pass) / sizeof(arr_reply_code_pass[0]);
-	reply_code = recv_expect_reply_code(connect_SOCKET, arr_reply_code_pass,
-					    arr_size_pass);
+	vector<int> arr_reply_code_pass = {230};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code_pass);
 
 	return reply_code;
 }
@@ -226,10 +219,8 @@ int handle_ftp_exit(SOCKET connect_SOCKET)
 	memset(buf, 0, BUFLEN);
 
 	// Check server recieving quit msg
-	int arr_reply_code[] = {221};
-	int arr_size = sizeof(arr_reply_code) / sizeof(arr_reply_code[0]);
-	reply_code =
-	    recv_expect_reply_code(connect_SOCKET, arr_reply_code, arr_size);
+	vector<int> arr_reply_code = {221};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code);
 
 	return reply_code;
 }
@@ -241,13 +232,16 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 	int reply_code;
 	int status;
 
-	SOCKET data_SOCKET;
+	SOCKET data_SOCKET = INVALID_SOCKET;
+	SOCKET listen_SOCKET = INVALID_SOCKET;
 	if (default_mode == active) {
-		printf("active not yet implemented\n");
-		return 0;
+		listen_SOCKET = mode_ftp_active(connect_SOCKET);
 	} else {
 		data_SOCKET = mode_ftp_passive(connect_SOCKET);
 	}
+	// can not create data stream when passive
+	if (data_SOCKET == INVALID_SOCKET && default_mode == passive)
+		return 0;
 
 	// input co dang "ls [path]"
 	// NLST [<SP> <pathname>] <CRLF>
@@ -258,17 +252,21 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 		strcat_s(buf, input + 2);
 		strcat_s(buf, "\r\n");
 	}
+
+	// send ls msg
 	status = send(connect_SOCKET, buf, strlen(buf), 0);
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
 	}
 
 	// Check server receiving ls msg
-	int arr_reply_code_ls[] = {221, 125, 150};
-	int arr_size_ls =
-	    sizeof(arr_reply_code_ls) / sizeof(arr_reply_code_ls[0]);
-	reply_code = recv_expect_reply_code(connect_SOCKET, arr_reply_code_ls,
-					    arr_size_ls);
+	vector<int> arr_reply_code_ls = {221, 125, 150};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code_ls);
+
+	// accept if active
+	if (default_mode == active) {
+		data_SOCKET = accept(listen_SOCKET, NULL, NULL);
+	}
 
 	// receving data from server
 	memset(buf, 0, BUFLEN);
@@ -277,11 +275,8 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 	}
 
 	// Check server successfully transfer
-	int arr_reply_code_suc[] = {226, 250};
-	int arr_size_suc =
-	    sizeof(arr_reply_code_suc) / sizeof(arr_reply_code_suc[0]);
-	reply_code = recv_expect_reply_code(connect_SOCKET, arr_reply_code_suc,
-					    arr_size_suc);
+	vector<int> arr_reply_code_suc = {226, 250};
+	reply_code = recv_reply(connect_SOCKET, arr_reply_code_suc);
 
 	closesocket(data_SOCKET);
 	return reply_code;
@@ -290,28 +285,95 @@ int handle_ftp_ls(SOCKET connect_SOCKET, char *input, MODE default_mode)
 SOCKET mode_ftp_active(SOCKET connect_SOCKET)
 {
 	// random port (code from stackoverflow)
-	std::random_device rd;  // obtain a random number from hardware
-	std::mt19937 eng(rd()); // seed the generator
-	std::uniform_int_distribution<> distr(50000, 60000); // define the range
+	random_device rd;  // obtain a random number from hardware
+	mt19937 eng(rd()); // seed the generator
+	uniform_int_distribution<> distr(50000, 60000); // define the range
 	int ACT_PORT = distr(eng);
+	string port_str = to_string(ACT_PORT);
+
+	// Tao listen port
+	// Tao addrinfo object
+	addrinfo hints, *result, *p_addrinfo;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_PASSIVE;
+
+	// Resolve server address and port
+	int status =
+	    getaddrinfo("localhost", port_str.c_str(), &hints, &result);
+	if (status != 0) {
+		printf("getaddrinfo() failed with error %d\n", status);
+		return INVALID_SOCKET;
+	}
+
+	// Loop through all the resuls
+	char ip_str[INET_ADDRSTRLEN];
+	SOCKET listen_SOCKET = INVALID_SOCKET;
+	for (p_addrinfo = result; p_addrinfo != NULL;
+	     p_addrinfo = p_addrinfo->ai_next) {
+		listen_SOCKET =
+		    socket(p_addrinfo->ai_family, p_addrinfo->ai_socktype,
+			   p_addrinfo->ai_protocol);
+		if (listen_SOCKET == INVALID_SOCKET) {
+			continue;
+		}
+		status = bind(listen_SOCKET, p_addrinfo->ai_addr,
+			      (int)p_addrinfo->ai_addrlen);
+		if (status == SOCKET_ERROR) {
+			closesocket(listen_SOCKET);
+			continue;
+		}
+		if (p_addrinfo->ai_family == AF_INET) {
+			struct sockaddr_in *ipv4 =
+			    (struct sockaddr_in *)p_addrinfo->ai_addr;
+			void *addr = &(ipv4->sin_addr);
+			inet_ntop(p_addrinfo->ai_family, addr, ip_str,
+				  INET_ADDRSTRLEN);
+		}
+		break;
+	}
+	freeaddrinfo(result);
+
+	// Listen on a socket
+	status = listen(listen_SOCKET, SOMAXCONN);
+	if (status == SOCKET_ERROR) {
+		printf("listen() failed with error: %d\n", WSAGetLastError());
+		closesocket(listen_SOCKET);
+		return INVALID_SOCKET;
+	}
 
 	// PORT <SP> <host - port> <CRLF>
 	// <host - port> :: = <host - number>, <port - number>
 	// <host - number> :: = <number>, <number>, <number>, <number>
 	// <port - number> :: = <number>, <number>
 	// <number> :: = any decimal integer 1 through 255
+	for (size_t i = 0; i < strlen(ip_str); ++i) {
+		if (ip_str[i] == '.')
+			ip_str[i] = ',';
+	}
 	int port_num_1 = ACT_PORT / 256;
 	int port_num_2 = ACT_PORT % 256;
-	string port_msg = "PORT " + string(ip4_str) + string(",") +
-			  to_string(port_num_1) + string(",") +
-			  to_string(port_num_2) + string("\r\n");
+	string msg = "PORT " + string(ip_str) + string(",") +
+		     to_string(port_num_1) + string(",") +
+		     to_string(port_num_2) + string("\r\n");
+	char buf[BUFLEN];
+	strcpy_s(buf, msg.c_str());
 
-	int arr_reply_code[] = {200};
-	int arr_size = sizeof(arr_reply_code) / sizeof(arr_reply_code[0]);
-	int reply_code =
-	    recv_expect_reply_code(connect_SOCKET, arr_reply_code, arr_size);
+	// send PORT to server
+	status = send(connect_SOCKET, buf, strlen(buf), 0);
+	if (status == SOCKET_ERROR) {
+		printf("send() error %d\n", WSAGetLastError());
+		closesocket(listen_SOCKET);
+		return INVALID_SOCKET;
+	}
 
-	return 0;
+	// Get reply from server
+	vector<int> arr_reply_code = {200};
+	int reply_code = recv_reply(connect_SOCKET, arr_reply_code);
+
+	return listen_SOCKET;
 }
 
 SOCKET mode_ftp_passive(SOCKET connect_SOCKET)
@@ -332,7 +394,7 @@ SOCKET mode_ftp_passive(SOCKET connect_SOCKET)
 	// receiving 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
 	status = recv(connect_SOCKET, buf, BUFLEN, 0);
 	if (status == SOCKET_ERROR) {
-		printf("reiv() error %d\n", WSAGetLastError());
+		printf("recv() error %d\n", WSAGetLastError());
 		return INVALID_SOCKET;
 	}
 	// check if 227 correctly
@@ -392,18 +454,18 @@ SOCKET mode_ftp_passive(SOCKET connect_SOCKET)
 	return data_SOCKET;
 }
 
-int recv_expect_reply_code(SOCKET connect_SOCKET, int *arr_reply_code,
-			   int arr_size)
+int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect)
 {
 	char buf[BUFLEN];
 	int len_temp;
 	int reply_code;
 	while ((len_temp = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
 		char *p_end = NULL;
+		buf[len_temp] = '\0';
+		printf("%s", buf);
 		reply_code = strtol(buf, &p_end, 10);
-		print_reply_code(reply_code);
 
-		if (exists_in_arr(arr_reply_code, arr_size, reply_code)) {
+		if (exists_in_arr(arr_expect, reply_code)) {
 			break;
 		}
 		// error happen
