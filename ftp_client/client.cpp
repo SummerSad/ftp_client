@@ -243,6 +243,13 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	} else if (strcmp(input, "pwd") == 0) {
 		go_where = single;
 		cmd.str = string("PWD\r\n");
+	} else if (input[0] == 'c' && input[1] == 'd') {
+		go_where = single;
+		string temp = "CWD";
+		temp += string(input + 2);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {250};
 	} else if (input[0] == 'l' && input[1] == 's') {
 		go_where = multi;
 		string temp = "NLST";
@@ -423,6 +430,7 @@ SOCKET mode_active(SOCKET connect_SOCKET)
 	// <host - number> :: = <number>, <number>, <number>, <number>
 	// <port - number> :: = <number>, <number>
 	// <number> :: = any decimal integer 1 through 255
+	// 127.0.0.1 -> 127,0,0,1
 	for (size_t i = 0; i < strlen(ip_str); ++i) {
 		if (ip_str[i] == '.')
 			ip_str[i] = ',';
