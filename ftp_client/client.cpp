@@ -1,5 +1,5 @@
 // TODO
-// put, get, mput, mget
+// mput, mget
 #include "socket.h"
 #include <conio.h>
 #include <direct.h>
@@ -19,6 +19,7 @@ using namespace std;
 struct FTP_CMD {
 	string str;
 	vector<int> expect_reply;
+	string file_name;
 };
 
 // Login to socket with username and password
@@ -240,7 +241,6 @@ int handle_login(SOCKET connect_SOCKET)
 			password[temp_i++] = temp_ch;
 	}
 	password[temp_i] = '\0';
-	fflush(stdin);
 	printf("\n");
 	password[strcspn(password, "\n")] = 0; // remove trailing '\n'
 	sprintf_s(buf, "PASS %s\r\n", password);
@@ -307,7 +307,7 @@ FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where)
 		}
 		temp += "\r\n";
 		cmd.str = temp;
-		cmd.expect_reply = {150};
+		cmd.expect_reply = {125, 150};
 	} else if (strncmp(input, "dir", 3) == 0) {
 		go_where = dual;
 		string temp = "LIST";
@@ -316,7 +316,23 @@ FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where)
 		}
 		temp += "\r\n";
 		cmd.str = temp;
-		cmd.expect_reply = {150};
+		cmd.expect_reply = {125, 150};
+	} else if (strncmp(input, "get ", 4) == 0) {
+		go_where = file;
+		string temp = "RETR";
+		temp += string(input + 3);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {125, 150};
+		cmd.file_name = string(input + 4);
+	} else if (strncmp(input, "put ", 4) == 0) {
+		go_where = file;
+		string temp = "STOR";
+		temp += string(input + 3);
+		temp += "\r\n";
+		cmd.str = temp;
+		cmd.expect_reply = {125, 150};
+		cmd.file_name = string(input + 4);
 	} else {
 		cmd.str = "_ERROR_";
 	}
@@ -335,8 +351,11 @@ int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
 	int status;
 	if (go_where == single)
 		status = handle_cmd_single(connect_SOCKET, cmd);
-	else
+	else if (go_where == dual)
 		status = handle_cmd_dual(connect_SOCKET, cmd, ftp_mode,
+					 ip_client_str);
+	else
+		status = handle_cmd_file(connect_SOCKET, cmd, ftp_mode,
 					 ip_client_str);
 	return status;
 }
@@ -347,7 +366,7 @@ int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd)
 	int status = send(connect_SOCKET, cmd.str.c_str(), cmd.str.length(), 0);
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
-		return FTP_FAIL;
+		return FTP_EXIT;
 	}
 
 	// receive reply
@@ -365,6 +384,18 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 {
 	int status;
 
+	// ASCII mode
+	string ascii_str = "TYPE A\r\n";
+	status = send(connect_SOCKET, ascii_str.c_str(), ascii_str.length(), 0);
+	if (status == SOCKET_ERROR) {
+		printf("send() error %d\n", WSAGetLastError());
+		return FTP_EXIT;
+	}
+	vector<int> ascii_expect = {200};
+	if (recv_reply(connect_SOCKET, ascii_expect) == FTP_FAIL) {
+		return FTP_FAIL;
+	}
+
 	SOCKET data_SOCKET = INVALID_SOCKET;
 	SOCKET listen_SOCKET = INVALID_SOCKET;
 	if (ftp_mode == active) {
@@ -381,6 +412,9 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	status = send(connect_SOCKET, cmd.str.c_str(), cmd.str.length(), 0);
 	if (status == SOCKET_ERROR) {
 		printf("send() error %d\n", WSAGetLastError());
+		closesocket(listen_SOCKET);
+		closesocket(data_SOCKET);
+		return FTP_EXIT;
 	}
 
 	// receive reply
@@ -413,6 +447,102 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	}
 
 	closesocket(data_SOCKET);
+	return FTP_WIN;
+}
+
+int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+		    char *ip_client_str)
+{
+	int status;
+
+	// Binary mode
+	string bin_mode = "TYPE I\r\n";
+	status = send(connect_SOCKET, bin_mode.c_str(), bin_mode.length(), 0);
+	if (status == SOCKET_ERROR) {
+		printf("send() error %d\n", WSAGetLastError());
+		return FTP_EXIT;
+	}
+	vector<int> bin_expect = {200};
+	if (recv_reply(connect_SOCKET, bin_expect) == FTP_FAIL) {
+		return FTP_FAIL;
+	}
+
+	SOCKET data_SOCKET = INVALID_SOCKET;
+	SOCKET listen_SOCKET = INVALID_SOCKET;
+	if (ftp_mode == active) {
+		listen_SOCKET = mode_active(connect_SOCKET, ip_client_str);
+	} else {
+		data_SOCKET = mode_passive(connect_SOCKET);
+	}
+
+	// can not create data stream or listen socket
+	if (data_SOCKET == INVALID_SOCKET && listen_SOCKET == INVALID_SOCKET)
+		return FTP_FAIL;
+
+	// send cmd
+	status = send(connect_SOCKET, cmd.str.c_str(), cmd.str.length(), 0);
+	if (status == SOCKET_ERROR) {
+		printf("send() error %d\n", WSAGetLastError());
+		return FTP_EXIT;
+	}
+
+	// receive reply
+	if (recv_reply(connect_SOCKET, cmd.expect_reply) == FTP_FAIL) {
+		closesocket(listen_SOCKET);
+		closesocket(data_SOCKET);
+		return FTP_FAIL;
+	}
+
+	// active mode require
+	if (ftp_mode == active) {
+		data_SOCKET = accept(listen_SOCKET, NULL, NULL);
+		closesocket(listen_SOCKET);
+	}
+
+	// Buffer
+	char buf[BUFLEN];
+	int len_buf;
+	memset(buf, 0, BUFLEN);
+	// get file
+	if (strncmp(cmd.str.c_str(), "RETR ", 5) == 0) {
+		FILE *f_save;
+		fopen_s(&f_save, cmd.file_name.c_str(), "wb");
+		while ((len_buf = recv(data_SOCKET, buf, BUFLEN, 0)) > 0) {
+			fwrite(buf, sizeof(char), len_buf, f_save);
+		}
+		fclose(f_save);
+	}
+	// put file
+	else if (strncmp(cmd.str.c_str(), "STOR ", 5) == 0) {
+		FILE *f_read;
+		status = fopen_s(&f_read, cmd.file_name.c_str(), "rb");
+		if (status != 0) {
+			printf("File %s can not be opened\n",
+			       cmd.file_name.c_str());
+			closesocket(data_SOCKET);
+			return FTP_FAIL;
+		}
+		while ((len_buf = fread(buf, sizeof(char), BUFLEN, f_read)) >
+		       0) {
+			status = send(data_SOCKET, buf, len_buf, 0);
+			if (status == SOCKET_ERROR) {
+				printf("send() error %d\n", WSAGetLastError());
+				fclose(f_read);
+				closesocket(data_SOCKET);
+				return FTP_EXIT;
+			}
+		}
+		fclose(f_read);
+	}
+	closesocket(data_SOCKET);
+
+	// Check server successfully transfer
+	vector<int> arr_expect = {226};
+	if (recv_reply(connect_SOCKET, arr_expect) == FTP_FAIL) {
+		closesocket(data_SOCKET);
+		return FTP_FAIL;
+	}
+
 	return FTP_WIN;
 }
 
