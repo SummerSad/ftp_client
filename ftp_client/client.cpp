@@ -1,6 +1,5 @@
 // TODO
 // put, get, mput, mget
-// mdelete
 #include "socket.h"
 #include <conio.h>
 #include <direct.h>
@@ -31,12 +30,12 @@ int handle_login(SOCKET connect_SOCKET);
  * example ls -> NLST
  * go_where: single stream, dual stream or file stream
  */
-FTP_CMD change_cmd(char *input, CMD_WHERE &go_where);
+FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where);
 
 /* Decide which input go to
  * single stream, dual stream or file stream
  */
-int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode,
+int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
 	       char *ip_client_str);
 
 // Handle user request
@@ -168,8 +167,22 @@ int main(int argc, char *argv[])
 		}
 
 		// cmd for server
-		status =
-		    decide_cmd(connect_SOCKET, input, ftp_mode, ip_client_str);
+		// multi command (mput, mget, mdelete)
+		if (strncmp(input, "mdelete ", 8) == 0) {
+			string pre = "delete ";
+			char *token = NULL;
+			char *next_token = NULL;
+			token = strtok_s(input + 8, " ", &next_token);
+			while (token != NULL) {
+				decide_cmd(connect_SOCKET,
+					   (pre + string(token)).c_str(),
+					   ftp_mode, ip_client_str);
+				token = strtok_s(NULL, " ", &next_token);
+			}
+		} else {
+			status = decide_cmd(connect_SOCKET, input, ftp_mode,
+					    ip_client_str);
+		}
 		if (status == FTP_EXIT)
 			break;
 	}
@@ -247,7 +260,7 @@ int handle_login(SOCKET connect_SOCKET)
 	return FTP_WIN;
 }
 
-FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
+FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where)
 {
 	FTP_CMD cmd;
 	if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0 ||
@@ -258,28 +271,28 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	} else if (strcmp(input, "pwd") == 0) {
 		go_where = single;
 		cmd.str = string("PWD\r\n");
-	} else if (strncmp(input, "cd", 2) == 0) {
+	} else if (strncmp(input, "cd ", 3) == 0) {
 		go_where = single;
 		string temp = "CWD";
 		temp += string(input + 2);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	} else if (strncmp(input, "delete", 6) == 0) {
+	} else if (strncmp(input, "delete ", 7) == 0) {
 		go_where = single;
 		string temp = "DELE";
 		temp += string(input + 6);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	} else if (strncmp(input, "mkdir", 5) == 0) {
+	} else if (strncmp(input, "mkdir ", 6) == 0) {
 		go_where = single;
 		string temp = "MKD";
 		temp += string(input + 5);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {257};
-	} else if (strncmp(input, "rmdir", 5) == 0) {
+	} else if (strncmp(input, "rmdir ", 6) == 0) {
 		go_where = single;
 		string temp = "RMD";
 		temp += string(input + 5);
@@ -310,7 +323,7 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	return cmd;
 }
 
-int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode,
+int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
 	       char *ip_client_str)
 {
 	CMD_WHERE go_where;
