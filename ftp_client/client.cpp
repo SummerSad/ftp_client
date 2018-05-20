@@ -723,9 +723,9 @@ int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect)
 	char buf[BUFLEN];
 	int len_temp;
 	if ((len_temp = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
-		char *p_end = NULL;
 		buf[len_temp] = '\0';
 		printf("%s", buf);
+		char *p_end = NULL;
 		int reply_code = strtol(buf, &p_end, 10);
 
 		if (!exists_in_arr(arr_expect, reply_code)) {
