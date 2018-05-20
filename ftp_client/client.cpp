@@ -16,7 +16,7 @@
 #define FTP_WIN 0
 #define FTP_EXIT 1
 enum MODE { active, passive };
-enum CMD_WHERE { single, dual };
+enum CMD_WHERE { single, dual, file };
 using namespace std;
 
 struct FTP_CMD {
@@ -38,17 +38,21 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where);
 /* Decide which input go to
  * single stream or dual stream
  */
-int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode);
+int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode,
+	       char *ip_client_str);
 
 // Handle user request
 int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd);
-int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode);
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+		    char *ip_client_str);
+int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+		    char *ip_client_str);
 
 /* active mode
  * return listen socket
  * wait to accept transfer data
  */
-SOCKET mode_active(SOCKET connect_SOCKET);
+SOCKET mode_active(SOCKET connect_SOCKET, char *ip_client_str);
 
 /* passive mode
  * return socket to transfer data
@@ -120,6 +124,20 @@ int main(int argc, char *argv[])
 	// done with result
 	freeaddrinfo(result);
 
+	// Get socket info
+	struct sockaddr_in client_addr;
+	socklen_t addr_len = sizeof(client_addr);
+	if (getsockname(connect_SOCKET, (struct sockaddr *)&client_addr,
+			&addr_len) < 0) {
+		printf("getsockname error\n");
+	}
+	// Get client IP
+	char ip_client_str[INET_ADDRSTRLEN];
+	if (inet_ntop(client_addr.sin_family, &(client_addr.sin_addr),
+		      ip_client_str, sizeof(ip_client_str)) == NULL) {
+		printf("inet_ntop error\n");
+	}
+
 	// Login
 	status = handle_login(connect_SOCKET);
 	if (status == FTP_FAIL) {
@@ -156,8 +174,7 @@ int main(int argc, char *argv[])
 			continue;
 		}
 		// change client directory
-		else if (input[0] == 'l' && input[1] == 'c' &&
-			 input[2] == 'd') {
+		else if (strncmp(input, "lcd", 3) == 0) {
 			_chdir(input + 4);
 			printf("Change client working directory to %s\n",
 			       input + 4);
@@ -176,7 +193,8 @@ int main(int argc, char *argv[])
 		}
 
 		// cmd to server
-		status = decide_cmd(connect_SOCKET, input, ftp_mode);
+		status =
+		    decide_cmd(connect_SOCKET, input, ftp_mode, ip_client_str);
 		if (status == FTP_EXIT)
 			break;
 	}
@@ -265,48 +283,37 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	} else if (strcmp(input, "pwd") == 0) {
 		go_where = single;
 		cmd.str = string("PWD\r\n");
-	}
-	// cd
-	else if (input[0] == 'c' && input[1] == 'd') {
+	} else if (strncmp(input, "cd", 2) == 0) {
 		go_where = single;
 		string temp = "CWD";
 		temp += string(input + 2);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	}
-	// delete
-	else if (input[0] == 'd' && input[1] == 'e' && input[2] == 'l' &&
-		 input[3] == 'e' && input[4] == 't' && input[5] == 'e') {
+	} else if (strncmp(input, "delete", 6) == 0) {
 		go_where = single;
 		string temp = "DELE";
 		temp += string(input + 6);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	}
-	// mkdir
-	else if (input[0] == 'm' && input[1] == 'k' && input[2] == 'd' &&
-		 input[3] == 'i' && input[4] == 'r') {
+	} else if (strncmp(input, "mdelete", 7) == 0) {
+
+	} else if (strncmp(input, "mkdir", 5) == 0) {
 		go_where = single;
 		string temp = "MKD";
 		temp += string(input + 5);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {257};
-	}
-	// rmdir
-	else if (input[0] == 'r' && input[1] == 'm' && input[2] == 'd' &&
-		 input[3] == 'i' && input[4] == 'r') {
+	} else if (strncmp(input, "rmdir", 5) == 0) {
 		go_where = single;
 		string temp = "RMD";
 		temp += string(input + 5);
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	}
-	// ls
-	else if (input[0] == 'l' && input[1] == 's') {
+	} else if (strncmp(input, "ls", 2) == 0) {
 		go_where = dual;
 		string temp = "NLST";
 		if (input[2] != '\0') {
@@ -315,7 +322,7 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {150};
-	} else if (input[0] == 'd' && input[1] == 'i' && input[2] == 'r') {
+	} else if (strncmp(input, "dir", 3) == 0) {
 		go_where = dual;
 		string temp = "LIST";
 		if (input[3] != '\0') {
@@ -330,7 +337,8 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	return cmd;
 }
 
-int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode)
+int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode,
+	       char *ip_client_str)
 {
 	CMD_WHERE go_where;
 	FTP_CMD cmd = change_cmd(input, go_where);
@@ -342,7 +350,8 @@ int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode)
 	if (go_where == single)
 		status = handle_cmd_single(connect_SOCKET, cmd);
 	else
-		status = handle_cmd_dual(connect_SOCKET, cmd, ftp_mode);
+		status = handle_cmd_dual(connect_SOCKET, cmd, ftp_mode,
+					 ip_client_str);
 	return status;
 }
 
@@ -365,14 +374,15 @@ int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd)
 	return status;
 }
 
-int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+		    char *ip_client_str)
 {
 	int status;
 
 	SOCKET data_SOCKET = INVALID_SOCKET;
 	SOCKET listen_SOCKET = INVALID_SOCKET;
 	if (ftp_mode == active) {
-		listen_SOCKET = mode_active(connect_SOCKET);
+		listen_SOCKET = mode_active(connect_SOCKET, ip_client_str);
 	} else {
 		data_SOCKET = mode_passive(connect_SOCKET);
 	}
@@ -420,7 +430,7 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
 	return FTP_WIN;
 }
 
-SOCKET mode_active(SOCKET connect_SOCKET)
+SOCKET mode_active(SOCKET connect_SOCKET, char *ip_client_str)
 {
 	// random port (code from stackoverflow)
 	random_device rd;  // obtain a random number from hardware
@@ -440,7 +450,7 @@ SOCKET mode_active(SOCKET connect_SOCKET)
 
 	// Resolve server address and port
 	int status =
-	    getaddrinfo("localhost", port_str.c_str(), &hints, &result);
+	    getaddrinfo(ip_client_str, port_str.c_str(), &hints, &result);
 	if (status != 0) {
 		printf("getaddrinfo() failed with error %d\n", status);
 		return INVALID_SOCKET;
@@ -487,6 +497,7 @@ SOCKET mode_active(SOCKET connect_SOCKET)
 	// <host - number> :: = <number>, <number>, <number>, <number>
 	// <port - number> :: = <number>, <number>
 	// <number> :: = any decimal integer 1 through 255
+
 	// 127.0.0.1 -> 127,0,0,1
 	for (size_t i = 0; i < strlen(ip_str); ++i) {
 		if (ip_str[i] == '.')
