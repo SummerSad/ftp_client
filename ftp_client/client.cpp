@@ -1,14 +1,12 @@
 // TODO
 // put, get, mput, mget
 // mdelete
+#include "socket.h"
 #include <conio.h>
 #include <direct.h>
 #include <iostream>
 #include <random>
 #include <string>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "Ws2_32.lib")
 
 #define BUFLEN 1024
 #define FTP_PORT "21"
@@ -31,12 +29,12 @@ int handle_login(SOCKET connect_SOCKET);
  * from user input
  * for server to understand
  * example ls -> NLST
- * go_where: single stream or dual stream
+ * go_where: single stream, dual stream or file stream
  */
 FTP_CMD change_cmd(char *input, CMD_WHERE &go_where);
 
 /* Decide which input go to
- * single stream or dual stream
+ * single stream, dual stream or file stream
  */
 int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode,
 	       char *ip_client_str);
@@ -82,69 +80,42 @@ int main(int argc, char *argv[])
 	if (status != 0) {
 		printf("WSAStartup() failed with error: %d\n", status);
 		WSACleanup();
-		return 1;
+		exit(1);
 	}
 
-	// Tao addrinfo object
-	addrinfo hints, *result, *p_addrinfo;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-
-	// Resolve server address and port
-	status = getaddrinfo(argv[1], FTP_PORT, &hints, &result);
-	if (status != 0) {
-		printf("getaddrinfo() failed with error %d\n", status);
+	// Tao connect_SOCKET ket noi FTP server
+	SOCKET connect_SOCKET = cre_soc_connect(argv[1], FTP_PORT);
+	if (connect_SOCKET == INVALID_SOCKET) {
+		printf("cre_soc_connect() failed\n");
 		WSACleanup();
-		return 1;
+		exit(1);
 	}
 
-	// Loop through all the resuls and connect the first
-	SOCKET connect_SOCKET = INVALID_SOCKET;
-	for (p_addrinfo = result; p_addrinfo != NULL;
-	     p_addrinfo = p_addrinfo->ai_next) {
-		connect_SOCKET =
-		    socket(p_addrinfo->ai_family, p_addrinfo->ai_socktype,
-			   p_addrinfo->ai_protocol);
-		// invalid_socket -> use next p_addrinfo
-		if (connect_SOCKET == INVALID_SOCKET) {
-			continue;
-		}
-		status = connect(connect_SOCKET, p_addrinfo->ai_addr,
-				 (int)p_addrinfo->ai_addrlen);
-		// error_socket -> close then use next p_addrinfo
-		if (status == SOCKET_ERROR) {
-			closesocket(connect_SOCKET);
-			continue;
-		}
-		break;
-	}
-
-	// done with result
-	freeaddrinfo(result);
-
-	// Get socket info
+	// Get socket info (to get client IP)
 	struct sockaddr_in client_addr;
 	socklen_t addr_len = sizeof(client_addr);
 	if (getsockname(connect_SOCKET, (struct sockaddr *)&client_addr,
 			&addr_len) < 0) {
-		printf("getsockname error\n");
+		printf("getsockname() error\n");
+		WSACleanup();
+		exit(1);
 	}
 	// Get client IP
 	char ip_client_str[INET_ADDRSTRLEN];
 	if (inet_ntop(client_addr.sin_family, &(client_addr.sin_addr),
 		      ip_client_str, sizeof(ip_client_str)) == NULL) {
-		printf("inet_ntop error\n");
+		printf("inet_ntop() error\n");
+		WSACleanup();
+		exit(1);
 	}
 
 	// Login
 	status = handle_login(connect_SOCKET);
 	if (status == FTP_FAIL) {
+		printf("Login error\n");
 		closesocket(connect_SOCKET);
 		WSACleanup();
-		printf("Login error\n");
-		return 0;
+		exit(1);
 	}
 
 	// Read commands from user
@@ -155,7 +126,7 @@ int main(int argc, char *argv[])
 		fgets(input, BUFLEN, stdin);
 		input[strcspn(input, "\n")] = 0; // remove trailing '\n'
 
-		// client only
+		// cmd for client
 		if (strcmp(input, "active") == 0) {
 			if (ftp_mode == active)
 				printf("Keep active mode\n");
@@ -196,7 +167,7 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		// cmd to server
+		// cmd for server
 		status =
 		    decide_cmd(connect_SOCKET, input, ftp_mode, ip_client_str);
 		if (status == FTP_EXIT)
@@ -301,8 +272,6 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 		temp += "\r\n";
 		cmd.str = temp;
 		cmd.expect_reply = {250};
-	} else if (strncmp(input, "mdelete", 7) == 0) {
-
 	} else if (strncmp(input, "mkdir", 5) == 0) {
 		go_where = single;
 		string temp = "MKD";
@@ -497,11 +466,6 @@ SOCKET mode_active(SOCKET connect_SOCKET, char *ip_client_str)
 	}
 
 	// PORT <SP> <host - port> <CRLF>
-	// <host - port> :: = <host - number>, <port - number>
-	// <host - number> :: = <number>, <number>, <number>, <number>
-	// <port - number> :: = <number>, <number>
-	// <number> :: = any decimal integer 1 through 255
-
 	// 127.0.0.1 -> 127,0,0,1
 	for (size_t i = 0; i < strlen(ip_str); ++i) {
 		if (ip_str[i] == '.')
@@ -546,12 +510,14 @@ SOCKET mode_passive(SOCKET connect_SOCKET)
 	}
 	memset(buf, 0, BUFLEN);
 
-	// receiving 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
+	// 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
 	status = recv(connect_SOCKET, buf, BUFLEN, 0);
 	if (status == SOCKET_ERROR) {
 		printf("recv() error %d\n", WSAGetLastError());
 		return INVALID_SOCKET;
-	}
+	} else
+		buf[status] = '\0'; // recv return len of buf actual receving
+
 	// check if 227 correctly
 	char *p_end = NULL;
 	printf("%s", buf);
@@ -571,43 +537,8 @@ SOCKET mode_passive(SOCKET connect_SOCKET)
 	int port_num = p1 * 256 + p2;
 	string port_str = to_string(port_num);
 
-	// connect to server by port given
-	// Tao addrinfo object
-	addrinfo hints, *result, *p_addrinfo;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_protocol = IPPROTO_TCP;
-
-	// Resolve server address and port
-	status = getaddrinfo(ip_str.c_str(), port_str.c_str(), &hints, &result);
-	if (status != 0) {
-		printf("getaddrinfo() failed with error %d\n", status);
-		return INVALID_SOCKET;
-	}
-
-	// Loop through all the resuls and connect the first
-	SOCKET data_SOCKET = INVALID_SOCKET;
-	for (p_addrinfo = result; p_addrinfo != NULL;
-	     p_addrinfo = p_addrinfo->ai_next) {
-		data_SOCKET =
-		    socket(p_addrinfo->ai_family, p_addrinfo->ai_socktype,
-			   p_addrinfo->ai_protocol);
-		// invalid_socket -> use next p_addrinfo
-		if (data_SOCKET == INVALID_SOCKET) {
-			continue;
-		}
-		status = connect(data_SOCKET, p_addrinfo->ai_addr,
-				 (int)p_addrinfo->ai_addrlen);
-		// error_socket -> close then use next p_addrinfo
-		if (status == SOCKET_ERROR) {
-			closesocket(data_SOCKET);
-			continue;
-		}
-		break;
-	}
-
-	freeaddrinfo(result);
+	// create data_SOCKET connect to ip and port given
+	SOCKET data_SOCKET = cre_soc_connect(ip_str.c_str(), port_str.c_str());
 	return data_SOCKET;
 }
 
