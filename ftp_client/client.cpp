@@ -16,7 +16,7 @@
 #define FTP_WIN 0
 #define FTP_EXIT 1
 enum MODE { active, passive };
-enum CMD_WHERE { single, multi };
+enum CMD_WHERE { single, dual };
 using namespace std;
 
 struct FTP_CMD {
@@ -31,17 +31,18 @@ int handle_login(SOCKET connect_SOCKET);
  * from user input
  * for server to understand
  * example ls -> NLST
+ * go_where: single stream or dual stream
  */
 FTP_CMD change_cmd(char *input, CMD_WHERE &go_where);
 
 /* Decide which input go to
- * single cmd or multi cmd
+ * single stream or dual stream
  */
 int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode);
 
 // Handle user request
 int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd);
-int handle_cmd_multi(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode);
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode);
 
 /* active mode
  * return listen socket
@@ -226,9 +227,9 @@ int handle_login(SOCKET connect_SOCKET)
 	// 13 ENTER
 	// 8 BACKSPACE
 	while ((temp_ch = _getch()) != 13) {
-		printf("*");
 		if (temp_ch == 8) {
-			--temp_i;
+			if (temp_i > 0)
+				--temp_i;
 		} else
 			password[temp_i++] = temp_ch;
 	}
@@ -306,7 +307,7 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 	}
 	// ls
 	else if (input[0] == 'l' && input[1] == 's') {
-		go_where = multi;
+		go_where = dual;
 		string temp = "NLST";
 		if (input[2] != '\0') {
 			temp += string(input + 2);
@@ -315,7 +316,7 @@ FTP_CMD change_cmd(char *input, CMD_WHERE &go_where)
 		cmd.str = temp;
 		cmd.expect_reply = {150};
 	} else if (input[0] == 'd' && input[1] == 'i' && input[2] == 'r') {
-		go_where = multi;
+		go_where = dual;
 		string temp = "LIST";
 		if (input[3] != '\0') {
 			temp += string(input + 3);
@@ -341,7 +342,7 @@ int decide_cmd(SOCKET connect_SOCKET, char *input, MODE ftp_mode)
 	if (go_where == single)
 		status = handle_cmd_single(connect_SOCKET, cmd);
 	else
-		status = handle_cmd_multi(connect_SOCKET, cmd, ftp_mode);
+		status = handle_cmd_dual(connect_SOCKET, cmd, ftp_mode);
 	return status;
 }
 
@@ -364,7 +365,7 @@ int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd)
 	return status;
 }
 
-int handle_cmd_multi(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
 {
 	int status;
 
@@ -404,6 +405,7 @@ int handle_cmd_multi(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode)
 	int len_temp;
 	memset(buf, 0, BUFLEN);
 	while ((len_temp = recv(data_SOCKET, buf, BUFLEN, 0)) > 0) {
+		buf[len_temp] = '\0';
 		printf("%s", buf);
 	}
 
