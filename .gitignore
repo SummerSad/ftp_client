@@ -3,6 +3,7 @@
 *.o
 *.out
 *.stackdump
+*.txt
 tags
 
 # Visual studio

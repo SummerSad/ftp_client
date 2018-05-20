@@ -163,17 +163,46 @@ int main(int argc, char *argv[])
 			continue;
 		} else if (strcmp(input, "help") == 0 ||
 			   strcmp(input, "?") == 0) {
-			printf("This is help\n");
+			printf("active\tpassive\n"
+			       "lcd\tlpwd\tcd\tpwd\n"
+			       "delete\tmdelete\t"
+			       "put\tmput\t"
+			       "get\tmget\n"
+			       "mkdir\trmdir\n"
+			       "exit\tquit\tq\t"
+			       "help\t?\n");
 			continue;
 		}
 
 		// cmd for server
-		// multi command (mput, mget, mdelete)
+		// multi command (mdelete, mget, mput)
 		if (strncmp(input, "mdelete ", 8) == 0) {
 			string pre = "delete ";
 			char *token = NULL;
 			char *next_token = NULL;
 			token = strtok_s(input + 8, " ", &next_token);
+			while (token != NULL) {
+				decide_cmd(connect_SOCKET,
+					   (pre + string(token)).c_str(),
+					   ftp_mode, ip_client_str);
+				token = strtok_s(NULL, " ", &next_token);
+			}
+		} else if (strncmp(input, "mget ", 5) == 0) {
+			string pre = "get ";
+			char *token = NULL;
+			char *next_token = NULL;
+			token = strtok_s(input + 5, " ", &next_token);
+			while (token != NULL) {
+				decide_cmd(connect_SOCKET,
+					   (pre + string(token)).c_str(),
+					   ftp_mode, ip_client_str);
+				token = strtok_s(NULL, " ", &next_token);
+			}
+		} else if (strncmp(input, "mput ", 5) == 0) {
+			string pre = "put ";
+			char *token = NULL;
+			char *next_token = NULL;
+			token = strtok_s(input + 5, " ", &next_token);
 			while (token != NULL) {
 				decide_cmd(connect_SOCKET,
 					   (pre + string(token)).c_str(),
@@ -455,6 +484,18 @@ int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 {
 	int status;
 
+	// Check if file to read exist (put)
+	if (strncmp(cmd.str.c_str(), "STOR ", 5) == 0) {
+		FILE *f;
+		status = fopen_s(&f, cmd.file_name.c_str(), "rb");
+		if (status != 0) {
+			printf("File %s can not be opened\n",
+			       cmd.file_name.c_str());
+			return FTP_WIN;
+		}
+		fclose(f);
+	}
+
 	// Binary mode
 	string bin_mode = "TYPE I\r\n";
 	status = send(connect_SOCKET, bin_mode.c_str(), bin_mode.length(), 0);
@@ -516,20 +557,12 @@ int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	else if (strncmp(cmd.str.c_str(), "STOR ", 5) == 0) {
 		FILE *f_read;
 		status = fopen_s(&f_read, cmd.file_name.c_str(), "rb");
-		if (status != 0) {
-			printf("File %s can not be opened\n",
-			       cmd.file_name.c_str());
-			closesocket(data_SOCKET);
-			return FTP_FAIL;
-		}
 		while ((len_buf = fread(buf, sizeof(char), BUFLEN, f_read)) >
 		       0) {
 			status = send(data_SOCKET, buf, len_buf, 0);
 			if (status == SOCKET_ERROR) {
 				printf("send() error %d\n", WSAGetLastError());
-				fclose(f_read);
-				closesocket(data_SOCKET);
-				return FTP_EXIT;
+				break;
 			}
 		}
 		fclose(f_read);
