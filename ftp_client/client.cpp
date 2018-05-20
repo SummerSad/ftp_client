@@ -175,9 +175,13 @@ int main(int argc, char *argv[])
 		}
 		// change client directory
 		else if (strncmp(input, "lcd", 3) == 0) {
-			_chdir(input + 4);
-			printf("Change client working directory to %s\n",
-			       input + 4);
+			if (_chdir(input + 4) == -1)
+				printf("Fail to change client working "
+				       "directory\n");
+			else
+				printf(
+				    "Change client working directory to %s\n",
+				    input + 4);
 			continue;
 		}
 		// show current client directory
