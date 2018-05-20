@@ -12,7 +12,7 @@
 #define FTP_FAIL -1
 #define FTP_WIN 0
 #define FTP_EXIT 1
-enum MODE { active, passive };
+enum FTP_MODE { active, passive };
 enum CMD_WHERE { single, dual, file };
 using namespace std;
 
@@ -36,14 +36,14 @@ FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where);
 /* Decide which input go to
  * single stream, dual stream or file stream
  */
-int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
+int decide_cmd(SOCKET connect_SOCKET, const char *input, FTP_MODE cur_mode,
 	       char *ip_client_str);
 
 // Handle user request
 int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd);
-int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, FTP_MODE cur_mode,
 		    char *ip_client_str);
-int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, FTP_MODE cur_mode,
 		    char *ip_client_str);
 
 /* active mode
@@ -120,7 +120,7 @@ int main(int argc, char *argv[])
 
 	// Read commands from user
 	char input[BUFLEN];
-	MODE ftp_mode = active;
+	FTP_MODE cur_mode = active;
 	while (1) {
 		printf("ftp> ");
 		fgets(input, BUFLEN, stdin);
@@ -128,19 +128,19 @@ int main(int argc, char *argv[])
 
 		// cmd for client
 		if (strcmp(input, "active") == 0) {
-			if (ftp_mode == active)
+			if (cur_mode == active)
 				printf("Keep active mode\n");
 			else {
 				printf("Switch to active mode\n");
-				ftp_mode = active;
+				cur_mode = active;
 			}
 			continue;
 		} else if (strcmp(input, "passive") == 0) {
-			if (ftp_mode == passive)
+			if (cur_mode == passive)
 				printf("Keep passive mode\n");
 			else {
 				printf("Switch to passive mode\n");
-				ftp_mode = passive;
+				cur_mode = passive;
 			}
 			continue;
 		}
@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
 			while (token != NULL) {
 				decide_cmd(connect_SOCKET,
 					   (pre + string(token)).c_str(),
-					   ftp_mode, ip_client_str);
+					   cur_mode, ip_client_str);
 				token = strtok_s(NULL, " ", &next_token);
 			}
 		} else if (strncmp(input, "mget ", 5) == 0) {
@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
 			while (token != NULL) {
 				decide_cmd(connect_SOCKET,
 					   (pre + string(token)).c_str(),
-					   ftp_mode, ip_client_str);
+					   cur_mode, ip_client_str);
 				token = strtok_s(NULL, " ", &next_token);
 			}
 		} else if (strncmp(input, "mput ", 5) == 0) {
@@ -206,11 +206,11 @@ int main(int argc, char *argv[])
 			while (token != NULL) {
 				decide_cmd(connect_SOCKET,
 					   (pre + string(token)).c_str(),
-					   ftp_mode, ip_client_str);
+					   cur_mode, ip_client_str);
 				token = strtok_s(NULL, " ", &next_token);
 			}
 		} else {
-			status = decide_cmd(connect_SOCKET, input, ftp_mode,
+			status = decide_cmd(connect_SOCKET, input, cur_mode,
 					    ip_client_str);
 		}
 		if (status == FTP_EXIT)
@@ -368,7 +368,7 @@ FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where)
 	return cmd;
 }
 
-int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
+int decide_cmd(SOCKET connect_SOCKET, const char *input, FTP_MODE cur_mode,
 	       char *ip_client_str)
 {
 	CMD_WHERE go_where;
@@ -381,10 +381,10 @@ int decide_cmd(SOCKET connect_SOCKET, const char *input, MODE ftp_mode,
 	if (go_where == single)
 		status = handle_cmd_single(connect_SOCKET, cmd);
 	else if (go_where == dual)
-		status = handle_cmd_dual(connect_SOCKET, cmd, ftp_mode,
+		status = handle_cmd_dual(connect_SOCKET, cmd, cur_mode,
 					 ip_client_str);
 	else
-		status = handle_cmd_file(connect_SOCKET, cmd, ftp_mode,
+		status = handle_cmd_file(connect_SOCKET, cmd, cur_mode,
 					 ip_client_str);
 	return status;
 }
@@ -408,7 +408,7 @@ int handle_cmd_single(SOCKET connect_SOCKET, FTP_CMD cmd)
 	return status;
 }
 
-int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, FTP_MODE cur_mode,
 		    char *ip_client_str)
 {
 	int status;
@@ -427,7 +427,7 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 
 	SOCKET data_SOCKET = INVALID_SOCKET;
 	SOCKET listen_SOCKET = INVALID_SOCKET;
-	if (ftp_mode == active) {
+	if (cur_mode == active) {
 		listen_SOCKET = mode_active(connect_SOCKET, ip_client_str);
 	} else {
 		data_SOCKET = mode_passive(connect_SOCKET);
@@ -454,7 +454,7 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	}
 
 	// active mode require
-	if (ftp_mode == active) {
+	if (cur_mode == active) {
 		data_SOCKET = accept(listen_SOCKET, NULL, NULL);
 		closesocket(listen_SOCKET);
 	}
@@ -479,7 +479,7 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	return FTP_WIN;
 }
 
-int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
+int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, FTP_MODE cur_mode,
 		    char *ip_client_str)
 {
 	int status;
@@ -510,7 +510,7 @@ int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 
 	SOCKET data_SOCKET = INVALID_SOCKET;
 	SOCKET listen_SOCKET = INVALID_SOCKET;
-	if (ftp_mode == active) {
+	if (cur_mode == active) {
 		listen_SOCKET = mode_active(connect_SOCKET, ip_client_str);
 	} else {
 		data_SOCKET = mode_passive(connect_SOCKET);
@@ -535,7 +535,7 @@ int handle_cmd_file(SOCKET connect_SOCKET, FTP_CMD cmd, MODE ftp_mode,
 	}
 
 	// active mode require
-	if (ftp_mode == active) {
+	if (cur_mode == active) {
 		data_SOCKET = accept(listen_SOCKET, NULL, NULL);
 		closesocket(listen_SOCKET);
 	}
