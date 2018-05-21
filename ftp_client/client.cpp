@@ -1,5 +1,3 @@
-// TODO
-// mput, mget
 #include "socket.h"
 #include <conio.h>
 #include <direct.h>
