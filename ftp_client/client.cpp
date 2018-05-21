@@ -26,8 +26,8 @@ int handle_login(SOCKET connect_SOCKET);
 /* Change command (cmd)
  * from user input for server to understand
  * example ls -> NLST
- * go_where:	single stream only connect stream
- *		dual stream include data stream
+ * go_where:	single only have connect stream
+ *		dual include data stream
  */
 FTP_CMD change_cmd(const char *input, CMD_WHERE &go_where);
 
@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
 	// Read commands from user
 	char input[BUFLEN];
 	FTP_MODE cur_mode = active;
-	while (1) {
+	while (true) {
 		printf("ftp> ");
 		fgets(input, BUFLEN, stdin);
 		input[strcspn(input, "\n")] = 0; // remove trailing '\n'
@@ -416,7 +416,7 @@ int handle_cmd_dual(SOCKET connect_SOCKET, FTP_CMD cmd, FTP_MODE cur_mode,
 			return FTP_FAIL;
 		}
 	} else {
-		// Check if file to read exist (put)
+		// Check if file to put exists
 		if (strncmp(cmd.str.c_str(), "STOR ", 5) == 0) {
 			FILE *f;
 			fopen_s(&f, cmd.file_name.c_str(), "rb");
