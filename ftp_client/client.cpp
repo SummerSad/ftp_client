@@ -670,15 +670,16 @@ int recv_reply(SOCKET connect_SOCKET, vector<int> arr_expect)
 {
 	char buf[BUFLEN];
 	int len_buf;
+	int reply_code;
 	if ((len_buf = recv(connect_SOCKET, buf, BUFLEN, 0)) > 0) {
 		buf[len_buf] = '\0';
 		printf("%s", buf);
 		char *p_end = NULL;
-		int reply_code = strtol(buf, &p_end, 10);
-
-		if (!exists_in_arr(arr_expect, reply_code)) {
-			return FTP_FAIL;
-		}
+		reply_code = strtol(buf, &p_end, 10);
+	}
+	// not the reply code we expect, but the reply code we deserve
+	if (!exists_in_arr(arr_expect, reply_code)) {
+		return FTP_FAIL;
 	}
 	return FTP_WIN;
 }
