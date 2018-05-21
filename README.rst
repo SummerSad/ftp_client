@@ -2,7 +2,7 @@
 FTP Client
 ==========
 
-Implement in C++ and Winsock 2.2, test with FileZilla server.
+Follows RFC 959, implements in C++ and Winsock 2.2, test with FileZilla server.
 
 How to run
 ==========
@@ -37,7 +37,6 @@ Flow explaination
 		if handle_cmd_single
 			send cmd
 			receive reply
-
 		else
 			if passive
 				create data stream
